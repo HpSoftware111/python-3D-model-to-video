@@ -90,26 +90,106 @@ driver.execute_script("""
 plot_div = driver.find_element("xpath", "//div[contains(@class,'plotly-graph-div')]")
 plot_id = plot_div.get_attribute("id")
 
-# Configurar página con fondo negro y configurar Plotly con fondo negro
+# Configurar página con fondo negro y configurar Plotly con fondo negro, ocultar todos los ejes
 driver.execute_script(f"""
     // Establecer fondo negro en el body
     document.body.style.backgroundColor = 'black';
     document.body.style.margin = '0';
     document.body.style.padding = '0';
     
-    // Configurar el fondo de la escena 3D de Plotly a negro
+    // Configurar el fondo de la escena 3D de Plotly a negro y ocultar todos los elementos de los ejes
     var gd = document.getElementById("{plot_id}");
-    if (gd) {{
+    if (gd && gd.data) {{
+        // Aumentar el grosor y brillo de las líneas en todos los traces
+        var updatedData = gd.data.map(function(trace) {{
+            if (trace.type === 'scatter3d' && trace.mode && trace.mode.includes('lines')) {{
+                // Aumentar grosor de línea
+                if (!trace.line) trace.line = {{}};
+                trace.line.width = (trace.line.width || 3) * 2;
+                
+                // Hacer las líneas más brillantes si tienen color
+                if (trace.line.color) {{
+                    // Convertir colores oscuros a más brillantes
+                    var color = trace.line.color;
+                    if (typeof color === 'string' && color.startsWith('rgba')) {{
+                        // Extraer valores RGB y aumentar brillo
+                        var match = color.match(/rgba?\\((\\d+),(\\d+),(\\d+)/);
+                        if (match) {{
+                            var r = Math.min(255, parseInt(match[1]) + 100);
+                            var g = Math.min(255, parseInt(match[2]) + 100);
+                            var b = Math.min(255, parseInt(match[3]) + 100);
+                            trace.line.color = 'rgba(' + r + ',' + g + ',' + b + ',1)';
+                        }}
+                    }} else if (typeof color === 'string' && color.startsWith('rgb')) {{
+                        var match = color.match(/rgb\\((\\d+),(\\d+),(\\d+)/);
+                        if (match) {{
+                            var r = Math.min(255, parseInt(match[1]) + 100);
+                            var g = Math.min(255, parseInt(match[2]) + 100);
+                            var b = Math.min(255, parseInt(match[3]) + 100);
+                            trace.line.color = 'rgb(' + r + ',' + g + ',' + b + ')';
+                        }}
+                    }}
+                }} else {{
+                    // Si no tiene color, usar blanco brillante
+                    trace.line.color = 'rgba(255, 255, 255, 1)';
+                }}
+            }}
+            // También mejorar marcadores si existen
+            if (trace.marker && trace.marker.color) {{
+                var mColor = trace.marker.color;
+                if (typeof mColor === 'string' && mColor.startsWith('rgba')) {{
+                    var match = mColor.match(/rgba?\\((\\d+),(\\d+),(\\d+)/);
+                    if (match) {{
+                        var r = Math.min(255, parseInt(match[1]) + 50);
+                        var g = Math.min(255, parseInt(match[2]) + 50);
+                        var b = Math.min(255, parseInt(match[3]) + 50);
+                        trace.marker.color = 'rgba(' + r + ',' + g + ',' + b + ',0.8)';
+                    }}
+                }}
+            }}
+            return trace;
+        }});
+        
+        Plotly.restyle(gd, updatedData);
+        
         Plotly.relayout(gd, {{
             'scene.bgcolor': 'black',
             'paper_bgcolor': 'black',
-            'plot_bgcolor': 'black'
+            'plot_bgcolor': 'black',
+            // Ocultar ejes X, Y, Z completamente
+            'scene.xaxis.visible': false,
+            'scene.yaxis.visible': false,
+            'scene.zaxis.visible': false,
+            // Ocultar etiquetas de los ejes
+            'scene.xaxis.showticklabels': false,
+            'scene.yaxis.showticklabels': false,
+            'scene.zaxis.showticklabels': false,
+            // Ocultar títulos de los ejes
+            'scene.xaxis.title': {{'text': ''}},
+            'scene.yaxis.title': {{'text': ''}},
+            'scene.zaxis.title': {{'text': ''}},
+            // Ocultar líneas de cuadrícula
+            'scene.xaxis.showgrid': false,
+            'scene.yaxis.showgrid': false,
+            'scene.zaxis.showgrid': false,
+            // Ocultar planos de fondo
+            'scene.xaxis.showbackground': false,
+            'scene.yaxis.showbackground': false,
+            'scene.zaxis.showbackground': false,
+            // Ocultar spikes (líneas de referencia)
+            'scene.xaxis.showspikes': false,
+            'scene.yaxis.showspikes': false,
+            'scene.zaxis.showspikes': false,
+            // Ocultar escalas y rangos visibles
+            'scene.xaxis.zeroline': false,
+            'scene.yaxis.zeroline': false,
+            'scene.zaxis.zeroline': false
         }});
     }}
 """)
 
-# Esperar un momento para que se apliquen los estilos
-time.sleep(1)
+# Esperar un momento para que se apliquen los estilos y cambios de color
+time.sleep(2)
 
 # ==============================
 # CONFIGURAR VIDEO
@@ -137,8 +217,9 @@ for i in range(FRAMES):
     if (i + 1) % 30 == 0:
         print(f"Procesando frame {i + 1}/{FRAMES}...")
 
-    angle = (i / FRAMES) * 360
-    zoom = 1 + 0.15 * math.sin(2 * math.pi * i / FRAMES)   # zoom suave
+    # Rotación muy lenta (solo 90 grados en todo el video)
+    angle = (i / FRAMES) * 90  # Rotación muy lenta y suave
+    zoom = 1.0  # Sin zoom, distancia fija
 
     driver.execute_script(
         f"""
@@ -212,12 +293,28 @@ for i in range(FRAMES):
         # Redimensionar el gráfico manteniendo la relación de aspecto
         resized_graph = cv2.resize(graph_frame, (new_w, new_h))
         
+        # Mejorar visibilidad de las líneas: aumentar brillo y contraste
+        # Convertir a float para operaciones
+        enhanced = resized_graph.astype(np.float32)
+        
+        # Aumentar brillo (sumar valor constante)
+        enhanced = enhanced + 30  # Aumentar brillo
+        
+        # Aumentar contraste (multiplicar)
+        enhanced = enhanced * 1.3  # Aumentar contraste
+        
+        # Asegurar que los valores estén en el rango [0, 255]
+        enhanced = np.clip(enhanced, 0, 255)
+        
+        # Convertir de vuelta a uint8
+        enhanced = enhanced.astype(np.uint8)
+        
         # Calcular posición para centrar el gráfico en el frame negro
         y_offset = (HEIGHT - new_h) // 2
         x_offset = (WIDTH - new_w) // 2
         
-        # Colocar el gráfico en el centro del frame negro
-        frame[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = resized_graph
+        # Colocar el gráfico mejorado en el centro del frame negro
+        frame[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = enhanced
         
         video.write(frame)
     else:
